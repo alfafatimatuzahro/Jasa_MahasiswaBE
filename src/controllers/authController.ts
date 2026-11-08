@@ -18,7 +18,12 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
         if (!isValidPassword) {
             return res.status(401).json({ message: "Email atau password salah" });
         }
-
+        
+        // Tolak akses jika role bukan admin
+        if (user.role !== 'admin') {
+            return res.status(403).json({ message: "Akses ditolak! Hanya Admin yang diizinkan." });
+        }
+        
         // Buat Token
         const token = jwt.sign(
             { id: user.id, role: user.role },
