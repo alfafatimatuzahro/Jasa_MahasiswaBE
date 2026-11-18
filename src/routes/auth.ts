@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { login } from "../controllers/authController";
-import { validate, loginSchema } from "../middlewares/validator";
+import { login, loginAdmin } from "../controllers/authController";
 
 export const authRouter = Router();
 
-// Hanya menyediakan endpoint login untuk Admin
-authRouter.post("/login", validate(loginSchema), login);
+authRouter.post("/login", login);
+authRouter.post("/admin/login", loginAdmin);
