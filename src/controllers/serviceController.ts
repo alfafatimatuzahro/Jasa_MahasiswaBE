@@ -121,7 +121,18 @@ export const createService = async (req: Request, res: Response) => {
             waktu_pengerjaan: Number(waktu_pengerjaan) || 1,
             jumlah_revisi: Number(jumlah_revisi) || 1,
             banner_url: savedBannerUrl,
-            status: status || 'aktif'
+            status: status || 'ditinjau'
+        });
+
+        res.status(201).json({
+            message: "Penawaran jasa berhasil dibuat dan menunggu moderasi admin",
+            data: {
+                id: newServiceId,
+                judul,
+                harga: Number(harga),
+                banner_url: savedBannerUrl,
+                status: status || 'ditinjau'
+            }
         });
 
         res.status(201).json({

@@ -8,7 +8,7 @@ import chatRoutes from "./routes/chatRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
 import walletRoutes from "./routes/walletRoutes";
 import userRoutes from "./routes/userRoutes";
-
+import { adminRouter } from './routes/admin'; // <-- Gunakan kurung kurawal { adminRouter }
 
 const app: Application = express();
 
@@ -18,6 +18,9 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Akses publik untuk folder foto sampul jasa
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+// Pendaftaran Route Admin
+app.use('/api/admin', adminRouter); // <-- Daftarkan endpoint Web Admin
 
 // Pendaftaran Route Service
 app.use('/api/services', serviceRouter);
