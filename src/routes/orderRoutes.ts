@@ -1,6 +1,7 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import {
     createOrder,
+    uploadPaymentProof,
     getBuyerOrders,
     getSellerOrders,
     updateOrderStatus,
@@ -10,6 +11,7 @@ import {
 const router = Router();
 
 router.post("/", createOrder);
+router.post("/:id/payment-proof", uploadPaymentProof);
 router.get("/buyer/:buyerId", getBuyerOrders);
 router.get("/seller/:sellerId", getSellerOrders);
 router.patch("/:id/status", updateOrderStatus);

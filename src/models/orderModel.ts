@@ -9,8 +9,26 @@ export interface CreateOrderInput {
     metode_pembayaran?: string;
 }
 
+const ensureOrderPaymentColumns = async () => {
+    const columns: Record<string, string> = {
+        bukti_pembayaran_url: "TEXT NULL",
+        status_pembayaran: "VARCHAR(50) NOT NULL DEFAULT 'belum_bayar'"
+    };
+    for (const [col, def] of Object.entries(columns)) {
+        try {
+            await pool.query(`ALTER TABLE orders ADD COLUMN ${col} ${def}`);
+        } catch (err: any) {
+            if (err?.code !== "ER_DUP_FIELDNAME") {
+                console.error(`Gagal menambah kolom ${col}:`, err?.message);
+            }
+        }
+    }
+};
+
 export const OrderModel = {
     createOrder: async (data: CreateOrderInput) => {
+        await ensureOrderPaymentColumns();
+
         const [serviceRows] = await pool.query<RowDataPacket[]>(
             "SELECT seller_id, harga FROM services WHERE id = ?",
             [data.service_id]
@@ -25,8 +43,8 @@ export const OrderModel = {
 
         const query = `
             INSERT INTO orders 
-            (order_code, service_id, buyer_id, seller_id, catatan, total_harga, metode_pembayaran, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'menunggu_konfirmasi')
+            (order_code, service_id, buyer_id, seller_id, catatan, total_harga, metode_pembayaran, status, status_pembayaran)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'menunggu_konfirmasi', 'belum_bayar')
         `;
 
         const values = [
@@ -45,6 +63,17 @@ export const OrderModel = {
             order_code: orderCode,
             seller_id: sellerId
         };
+    },
+
+    savePaymentProof: async (orderId: string | number, proofUrl: string) => {
+        await ensureOrderPaymentColumns();
+        const [result] = await pool.query<ResultSetHeader>(
+            `UPDATE orders 
+             SET bukti_pembayaran_url = ?, status_pembayaran = 'menunggu_verifikasi' 
+             WHERE id = ?`,
+            [proofUrl, orderId]
+        );
+        return result.affectedRows > 0;
     },
 
     getOrdersByBuyer: async (buyerId: string) => {
@@ -85,29 +114,25 @@ export const OrderModel = {
         return rows;
     },
 
-    updateOrderStatus: async (orderId: string, status: string) => {
-        const query = "UPDATE orders SET status = ? WHERE id = ?";
-        const [result] = await pool.query<ResultSetHeader>(query, [status, orderId]);
+    updateOrderStatus: async (id: string | number, status: string) => {
+        const [result] = await pool.query<ResultSetHeader>(
+            "UPDATE orders SET status = ? WHERE id = ?",
+            [status, id]
+        );
         return result.affectedRows > 0;
     },
 
     deliverOrder: async (
-        orderId: string,
+        id: string | number,
         resultNote: string,
         resultFileUrl: string | null
     ) => {
-        const query = `
-            UPDATE orders 
-            SET status = 'menunggu_review', 
-                result_note = ?, 
-                result_file_url = COALESCE(?, result_file_url)
-            WHERE id = ?
-        `;
-        const [result] = await pool.query<ResultSetHeader>(query, [
-            resultNote,
-            resultFileUrl,
-            orderId
-        ]);
+        const [result] = await pool.query<ResultSetHeader>(
+            `UPDATE orders 
+             SET status = 'menunggu_review', result_note = ?, result_file_url = ? 
+             WHERE id = ?`,
+            [resultNote, resultFileUrl, id]
+        );
         return result.affectedRows > 0;
     }
 };

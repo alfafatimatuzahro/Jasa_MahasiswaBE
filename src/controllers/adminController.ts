@@ -258,3 +258,41 @@ export const moderateService = async (req: Request, res: Response, next: NextFun
         next(error);
     }
 };
+// Verifikasi Bukti Pembayaran E-Wallet / Midtrans oleh Admin
+export const verifyTransactionPayment = async (req: Request, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { status } = req.body; // 'lunas' atau 'ditolak'
+
+    try {
+        if (status === 'lunas') {
+            await pool.query(
+                `UPDATE orders 
+                 SET status_pembayaran = 'lunas', status = 'menunggu_konfirmasi' 
+                 WHERE id = ?`,
+                [id]
+            );
+            res.status(200).json({
+                success: true,
+                message: 'Pembayaran diverifikasi lunas dan diteruskan ke penjual.'
+            });
+        } else if (status === 'ditolak') {
+            await pool.query(
+                `UPDATE orders 
+                 SET status_pembayaran = 'ditolak' 
+                 WHERE id = ?`,
+                [id]
+            );
+            res.status(200).json({
+                success: true,
+                message: 'Bukti pembayaran ditolak.'
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                message: "Status tidak valid. Gunakan 'lunas' atau 'ditolak'."
+            });
+        }
+    } catch (error) {
+        next(error);
+    }
+};

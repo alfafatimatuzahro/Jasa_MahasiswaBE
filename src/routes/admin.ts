@@ -5,7 +5,7 @@ import {
     verifyKtm, 
     getAiLogs, 
     getUsers, 
-    getTransactions, 
+    getTransactions, verifyTransactionPayment, 
     getPendingServices,
     getSettingsAndLogs,
     updatePlatformSettings,
@@ -47,3 +47,4 @@ adminRouter.post("/upload-avatar", upload.single("avatar"), uploadAdminAvatar);
 
 adminRouter.get("/services", getAllServicesAdmin);
 adminRouter.put("/services/:id/moderate", moderateService);
+adminRouter.put("/transactions/:id/verify-payment", verifyTransactionPayment);

@@ -9,6 +9,7 @@ import reviewRoutes from "./routes/reviewRoutes";
 import walletRoutes from "./routes/walletRoutes";
 import userRoutes from "./routes/userRoutes";
 import { adminRouter } from './routes/admin'; // <-- Gunakan kurung kurawal { adminRouter }
+import aiRoutes from './routes/aiRoutes';
 
 const app: Application = express();
 
@@ -33,6 +34,8 @@ app.use("/api/orders", orderRoutes);
 
 // Pendaftaran Route Chat
 app.use("/api/chats", chatRoutes);
+
+app.use('/api/ai', aiRoutes)
 
 // Pendaftaran Route Review
 app.use("/api/reviews", reviewRoutes);
