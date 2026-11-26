@@ -1,83 +1,116 @@
 import { Request, Response } from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
-// Sesuaikan import prisma / model database milikmu di sini
-// import prisma from '../prisma'; 
+import dotenv from 'dotenv';
+import db from '../config/db';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+dotenv.config();
 
 export const chatWithAsistenJasa = async (req: Request, res: Response) => {
   try {
-    const { message, history } = req.body;
+    const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+    if (!apiKey || apiKey.includes('ISI_KEY')) {
+      return res.status(500).json({
+        success: false,
+        message: 'GEMINI_API_KEY belum dikonfigurasi dengan benar di .env.'
+      });
+    }
 
-    // 1. Ambil daftar jasa yang tersedia dari database kamu (contoh dummy array, ganti dengan query DB)
-    // const services = await prisma.service.findMany({ where: { status: 'APPROVED' } });
-    const services = [
-      { id: 1, title: "Jasa Web React & UI Tailwind", category: "CODING", price: 50000 },
-      { id: 2, title: "Desain Presentasi PPT & Canva", category: "DESAIN", price: 30000 },
-      { id: 3, title: "Bantuan Olah Data SPSS & Excel", category: "DATA", price: 75000 },
-    ];
+    const ai = new GoogleGenAI({ apiKey });
+    const { message, user_id } = req.body;
 
-    // 2. Berikan konteks katalog jasa ke AI melalui System Instruction
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pesan tidak boleh kosong.'
+      });
+    }
+
+    // 1. Ambil data jasa yang disetujui dari database MySQL sesuai kolom aktual
+    const [services]: any = await db.query(
+      `SELECT 
+         s.id, 
+         s.judul AS title, 
+         COALESCE(c.nama, 'UMUM') AS category, 
+         s.harga AS price, 
+         s.deskripsi AS description
+       FROM services s
+       LEFT JOIN categories c ON s.category_id = c.id
+       WHERE s.status = 'approved'`
+    );
+
+    const daftarJasaKonteks = services.length > 0
+      ? JSON.stringify(services)
+      : 'Tidak ada jasa yang tersedia saat ini.';
+
+    // 2. Batasi AI hanya menggunakan data dari database
     const systemInstruction = `
-      Kamu adalah "Asisten Jasa", asisten ramah untuk platform Jasa Mahasiswa.
-      Tugasmu membantu mahasiswa menemukan jasa yang sesuai dengan kebutuhan tugas kuliah dan budget mereka.
-      
-      Daftar jasa yang tersedia saat ini:
-      ${JSON.stringify(services)}
+Kamu adalah "Asisten Jasa" di aplikasi Jasa Mahasiswa.
+Tugasmu membantu mahasiswa menemukan jasa yang sesuai dengan kebutuhan tugas dan budget mereka.
 
-      Aturan menjawab:
-      - Gunakan bahasa Indonesia yang santai, ramah, dan membantu.
-      - Jika kebutuhan user sudah jelas dan cocok dengan salah satu jasa di daftar, sebutkan rekomendasinya dan isi "recommendedServiceId" dengan ID jasa tersebut.
-      - Jika user masih bingung atau belum menyebutkan detail tugas/budget, ajukan pertanyaan lanjutan yang singkat dan isi "recommendedServiceId" dengan null.
-      - Jangan pernah merekomendasikan jasa di luar daftar yang diberikan.
-    `;
+ATURAN KETAT:
+1. Kamu HANYA BOLEH merekomendasikan jasa yang ada di dalam DATA DATABASE berikut:
+${daftarJasaKonteks}
+2. DILARANG KERAS mengarang, menebak, atau menyebutkan layanan/harga di luar DATA DATABASE tersebut.
+3. Jika tidak ada jasa yang cocok di database, katakan dengan sopan bahwa jasa tersebut belum tersedia dan tawarkan kategori yang ada di database.
+4. Jika user masih bingung atau belum spesifik, tanyakan detail kebutuhan tugas atau kisaran budget-nya (kosongkan array recommended_services).
+`;
 
-    // 3. Panggil Gemini API dengan output terstruktur (JSON)
+    // 3. Panggil Gemini dengan Structured JSON Output
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: [
-        ...(history || []), // Riwayat chat sebelumnya (opsional)
-        { role: 'user', parts: [{ text: message }] }
-      ],
+      contents: String(message),
       config: {
         systemInstruction: systemInstruction,
+        temperature: 0.2,
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             reply: {
               type: Type.STRING,
-              description: "Pesan balasan ramah untuk pengguna"
+              description: 'Balasan ramah dari Asisten Jasa untuk user.'
             },
-            recommendedServiceId: {
-              type: Type.INTEGER,
-              nullable: true,
-              description: "ID jasa dari daftar yang paling cocok, atau null jika belum ada yang pas"
+            recommended_services: {
+              type: Type.ARRAY,
+              description: 'Daftar jasa dari database yang direkomendasikan.',
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.INTEGER },
+                  title: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  price: { type: Type.NUMBER }
+                },
+                required: ['id', 'title', 'category', 'price']
+              }
             }
           },
-          required: ["reply", "recommendedServiceId"]
+          required: ['reply', 'recommended_services']
         }
       }
     });
 
-    // 4. Parse hasil JSON dari AI dan gabungkan dengan detail objek jasa
-    const aiResult = JSON.parse(response.text || '{}');
-    const recommendedService = aiResult.recommendedServiceId
-      ? services.find((s) => s.id === aiResult.recommendedServiceId) || null
-      : null;
+    const aiData = JSON.parse(response.text || '{}');
 
-    // 5. Kirim ke Flutter
+    try {
+      await db.query(
+        'INSERT INTO ai_search_logs (user_id, query_pencarian, respon_ai) VALUES (?, ?, ?)',
+        [user_id || null, String(message), aiData.reply || '']
+      );
+    } catch (_) {
+      // Abaikan jika tabel log belum dibuat
+    }
+
     return res.status(200).json({
       success: true,
-      reply: aiResult.reply,
-      recommendedService: recommendedService, // Akan berisi objek jasa jika cocok, atau null
+      data: aiData
     });
 
   } catch (error) {
-    console.error("AI Chat Error:", error);
+    console.error('Error Asisten Jasa:', error);
     return res.status(500).json({
       success: false,
-      message: "Maaf, Asisten Jasa sedang mengalami gangguan."
+      message: 'Terjadi kesalahan pada Asisten Jasa.'
     });
   }
 };
