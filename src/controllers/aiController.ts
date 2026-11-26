@@ -5,13 +5,46 @@ import db from '../config/db';
 
 dotenv.config();
 
+const MODELS_PRIORITY = ['gemini-2.5-flash-lite', 'gemini-3.8-flash'];
+
+async function generateWithFallback(ai: GoogleGenAI, baseParams: any) {
+  let lastError: any;
+
+  for (const modelName of MODELS_PRIORITY) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await ai.models.generateContent({
+          ...baseParams,
+          model: modelName,
+        });
+      } catch (err: any) {
+        lastError = err;
+        const msg = String(err?.message || '');
+        const isOverloaded =
+          msg.includes('503') ||
+          msg.includes('UNAVAILABLE') ||
+          msg.includes('high demand') ||
+          msg.includes('429');
+
+        if (isOverloaded) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          continue;
+        }
+        break;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 export const chatWithAsistenJasa = async (req: Request, res: Response) => {
   try {
     const apiKey = (process.env.GEMINI_API_KEY || '').trim();
-    if (!apiKey || apiKey.includes('ISI_KEY')) {
+    if (!apiKey) {
       return res.status(500).json({
         success: false,
-        message: 'GEMINI_API_KEY belum dikonfigurasi dengan benar di .env.'
+        message: 'GEMINI_API_KEY belum terbaca di .env.',
       });
     }
 
@@ -21,11 +54,11 @@ export const chatWithAsistenJasa = async (req: Request, res: Response) => {
     if (!message || !String(message).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Pesan tidak boleh kosong.'
+        message: 'Pesan tidak boleh kosong.',
       });
     }
 
-    // 1. Ambil data jasa yang disetujui dari database MySQL sesuai kolom aktual
+    // 1. Ambil data jasa yang disetujui dari database MySQL
     const [services]: any = await db.query(
       `SELECT 
          s.id, 
@@ -38,9 +71,10 @@ export const chatWithAsistenJasa = async (req: Request, res: Response) => {
        WHERE s.status = 'approved'`
     );
 
-    const daftarJasaKonteks = services.length > 0
-      ? JSON.stringify(services)
-      : 'Tidak ada jasa yang tersedia saat ini.';
+    const daftarJasaKonteks =
+      services.length > 0
+        ? JSON.stringify(services)
+        : 'Tidak ada jasa yang tersedia saat ini.';
 
     // 2. Batasi AI hanya menggunakan data dari database
     const systemInstruction = `
@@ -55,9 +89,8 @@ ${daftarJasaKonteks}
 4. Jika user masih bingung atau belum spesifik, tanyakan detail kebutuhan tugas atau kisaran budget-nya (kosongkan array recommended_services).
 `;
 
-    // 3. Panggil Gemini dengan Structured JSON Output
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    // 3. Panggil Gemini dengan Structured JSON Output + Auto Retry & Fallback Model
+    const response = await generateWithFallback(ai, {
       contents: String(message),
       config: {
         systemInstruction: systemInstruction,
@@ -68,7 +101,7 @@ ${daftarJasaKonteks}
           properties: {
             reply: {
               type: Type.STRING,
-              description: 'Balasan ramah dari Asisten Jasa untuk user.'
+              description: 'Balasan ramah dari Asisten Jasa untuk user.',
             },
             recommended_services: {
               type: Type.ARRAY,
@@ -79,18 +112,18 @@ ${daftarJasaKonteks}
                   id: { type: Type.INTEGER },
                   title: { type: Type.STRING },
                   category: { type: Type.STRING },
-                  price: { type: Type.NUMBER }
+                  price: { type: Type.NUMBER },
                 },
-                required: ['id', 'title', 'category', 'price']
-              }
-            }
+                required: ['id', 'title', 'category', 'price'],
+              },
+            },
           },
-          required: ['reply', 'recommended_services']
-        }
-      }
+          required: ['reply', 'recommended_services'],
+        },
+      },
     });
 
-    const aiData = JSON.parse(response.text || '{}');
+    const aiData = JSON.parse(response?.text || '{}');
 
     try {
       await db.query(
@@ -103,14 +136,20 @@ ${daftarJasaKonteks}
 
     return res.status(200).json({
       success: true,
-      data: aiData
+      data: aiData,
     });
-
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error Asisten Jasa:', error);
+    const msg = String(error?.message || '');
+    if (msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE')) {
+      return res.status(503).json({
+        success: false,
+        message: 'Server AI sedang padat sementara. Silakan coba kirim pesan lagi dalam beberapa detik.',
+      });
+    }
     return res.status(500).json({
       success: false,
-      message: 'Terjadi kesalahan pada Asisten Jasa.'
+      message: error?.message || 'Terjadi kesalahan pada Asisten Jasa.',
     });
   }
 };
