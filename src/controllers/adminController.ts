@@ -296,3 +296,53 @@ export const verifyTransactionPayment = async (req: Request, res: Response, next
         next(error);
     }
 };
+// Ambil Log Percakapan Pembeli & Penjual berdasarkan ID Transaksi (Read-Only untuk Admin)
+export const getTransactionChatLogs = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const orderId = Number(req.params.id);
+        if (!orderId) {
+            return res.status(400).json({ success: false, message: "ID transaksi tidak valid" });
+        }
+
+        const [orderRows]: any = await pool.query(
+            `SELECT o.id, o.buyer_id, o.seller_id, b.nama AS buyer_name, s.nama AS seller_name
+             FROM orders o
+             LEFT JOIN users b ON o.buyer_id = b.id
+             LEFT JOIN users s ON o.seller_id = s.id
+             WHERE o.id = ? LIMIT 1`,
+            [orderId]
+        );
+
+        if (!orderRows || orderRows.length === 0) {
+            return res.status(404).json({ success: false, message: "Transaksi tidak ditemukan" });
+        }
+
+        const order = orderRows[0];
+
+        const [messages]: any = await pool.query(
+            `SELECT m.id, m.order_id, m.sender_id, m.receiver_id, m.message, m.file_url, m.file_name, m.created_at,
+                    u.nama AS sender_name
+             FROM chat_messages m
+             LEFT JOIN users u ON m.sender_id = u.id
+             WHERE m.order_id = ?
+                OR (m.sender_id = ? AND m.receiver_id = ?)
+                OR (m.sender_id = ? AND m.receiver_id = ?)
+             ORDER BY m.created_at ASC, m.id ASC`,
+            [orderId, order.buyer_id, order.seller_id, order.seller_id, order.buyer_id]
+        );
+
+        return res.status(200).json({
+            success: true,
+            order: {
+                id: order.id,
+                buyer_id: order.buyer_id,
+                seller_id: order.seller_id,
+                buyer_name: order.buyer_name,
+                seller_name: order.seller_name,
+            },
+            data: messages,
+        });
+    } catch (error) {
+        next(error);
+    }
+};

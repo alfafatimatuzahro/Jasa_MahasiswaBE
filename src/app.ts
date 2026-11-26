@@ -8,12 +8,20 @@ import chatRoutes from "./routes/chatRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
 import walletRoutes from "./routes/walletRoutes";
 import userRoutes from "./routes/userRoutes";
-import { adminRouter } from './routes/admin'; // <-- Gunakan kurung kurawal { adminRouter }
+import { adminRouter } from './routes/admin';
 import aiRoutes from './routes/aiRoutes';
 
 const app: Application = express();
 
-app.use(cors());
+// Konfigurasi CORS lengkap untuk Flutter Web & Mobile
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
@@ -21,7 +29,7 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Pendaftaran Route Admin
-app.use('/api/admin', adminRouter); // <-- Daftarkan endpoint Web Admin
+app.use('/api/admin', adminRouter);
 
 // Pendaftaran Route Service
 app.use('/api/services', serviceRouter);
@@ -35,7 +43,8 @@ app.use("/api/orders", orderRoutes);
 // Pendaftaran Route Chat
 app.use("/api/chats", chatRoutes);
 
-app.use('/api/ai', aiRoutes)
+// Pendaftaran Route AI Assistant
+app.use('/api/ai', aiRoutes);
 
 // Pendaftaran Route Review
 app.use("/api/reviews", reviewRoutes);
